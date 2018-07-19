@@ -10,19 +10,22 @@ import Foundation
 
 class JsonLdParser {
 	
-	static func parseThing(json: Dict, parentContext: ArrayTest? = nil) -> (Thing, Dict) {
+	typealias Dict = [String: Any?]
+	typealias Context = [Any]
+	
+	static func parseThing(json: Dict, parentContext: Context? = nil) -> (Thing, Dict) {
 		let id = json["@id"] as? String ?? ""
-		let types = parseType(json["@type"])
-		let context = contextFrom(context: json["@context"] as? ArrayTest ?? [], parentContext: parentContext)
+		let types = parseType(json["@type"] as Any)
+		let context = contextFrom(context: json["@context"] as? Context ?? [], parentContext: parentContext)
 		let operations = parseOperations(json: json)
 		let (attributes, things) = parseAttributes(json: json, context: context)
 		
 		let thing = Thing(id: id, types: types, attributes: attributes, operations: operations)
 		
-		return (thing, ["embeddedThings": things])
+		return (thing, things)
 	}
 	
-	static func contextFrom(context: ArrayTest?, parentContext: ArrayTest?) -> ArrayTest {
+	static func contextFrom(context: Context?, parentContext: Context?) -> Context {
 		if let context = context, let parentContext = parentContext {
 			if !hasVocab(jsonObject: context) && hasVocab(jsonObject: parentContext)  {
 				var context = context
@@ -36,11 +39,11 @@ class JsonLdParser {
 		return context ?? parentContext ?? [] 
 	}
 	
-	static func hasVocab(jsonObject: ArrayTest) -> Bool {
+	static func hasVocab(jsonObject: Context) -> Bool {
 		return getVocab(context: jsonObject) != nil
 	}
 	
-	static func getVocab(context: ArrayTest) -> String? {
+	static func getVocab(context: Context) -> String? {
 		return context.first { item in
 			if let item = item as? [String: Any], item.keys.contains("@vocab") {
 				return true
@@ -61,10 +64,7 @@ class JsonLdParser {
 		}
 	}
 	
-	static func parseObject(key: String, value: Dict, context: ArrayTest, attributes: inout Dict, things: inout Dict) {
-//		var attributes = attributes
-//		var things = things
-		
+	static func parseObject(key: String, value: Dict, context: Context, attributes: inout Dict, things: inout Dict) {
 		if (value.keys.contains("@id")) {
 			let (thing, embbededThings) = parseThing(json: value, parentContext: context)
 			
@@ -87,10 +87,7 @@ class JsonLdParser {
 		}
 	}
 	
-	typealias Dict = [String: Any]
-	typealias ArrayTest = [Any]
-	
-	static func isEmbeddedThingArray(value: ArrayTest) -> Bool {
+	static func isEmbeddedThingArray(value: Context) -> Bool {
 		if let firstPair = value.first as? [String: Any] {
 			return firstPair["@id"] != nil
 		}
@@ -98,7 +95,7 @@ class JsonLdParser {
 		return false
 	}
 	
-	static func parseObjectArray(key: String, value: ArrayTest, context: ArrayTest, attributes: inout Dict, things: inout Dict) {
+	static func parseObjectArray(key: String, value: Context, context: Context, attributes: inout Dict, things: inout Dict) {
 
 		if (isEmbeddedThingArray(value: value)) {
 			let collection = value.map { parseThing(json: $0 as? Dict ?? [:]) }
@@ -111,7 +108,7 @@ class JsonLdParser {
 				relations.append(relation)
 				
 				things.merge(embbededThings) { first, second in
-					return first 
+					return second 
 				}
 				
 				things[thing.id] = thing
@@ -128,7 +125,7 @@ class JsonLdParser {
 				attributesList.append(embeddedAttributes)
 				
 				things.merge(embeddedThings) { first, second in
-					return first
+					return second
 				}
 				
 				attributes[key] = attributesList
@@ -155,7 +152,7 @@ class JsonLdParser {
 		}		
 	}
 	
-	static func parseAttributes(json: Dict, context: ArrayTest) -> (Dict, Dict) {
+	static func parseAttributes(json: Dict, context: Context) -> (Dict, Dict) {
 		let filteredJson = JsonLdParser.filterProperties(json: json, properties: ["@id", "@context", "@type"])
 		
 		let result = filteredJson.keys
@@ -169,8 +166,7 @@ class JsonLdParser {
 		return (attributes, things)
 	}
 	
-	static func flatten(context: ArrayTest, foldedAttributes:  inout Dict, attribute: [String: Any]) -> Dict {
-//		let (key, value) = attribute
+	static func flatten(context: Context, foldedAttributes:  inout Dict, attribute: [String: Any]) -> Dict {
 		let key = attribute.keys.first ?? ""
 		let value = attribute.values.first ?? ""
 		
@@ -179,24 +175,17 @@ class JsonLdParser {
 		
 		if let value = value as? Dict {
 			parseObject(key: key, value: value, context: context, attributes: &attributes, things: &things)
-//			
-			print("parsedAttributes \(attributes)")
-			print("attributes \(things)")
-			
-//			attributes = parsedAttributes
-//			things = parsedThings
 		}
 		else if let value = value as? [[String: Any]] {
 			parseObjectArray(key: key, value: value, context: context, attributes: &attributes, things: &things)
-			
-			print("parsedAttributes \(attributes)")
-			print("attributes \(things)")
 		}
 		else if isId(name: key, context: context) {
 			let value =  value as? String ?? ""
 			let relation = Relation(id: value, thing: nil)
 			
-			things[value] = nil
+			let null: Any? = nil
+			things[value] = null
+			
 			attributes[key] = relation
 		}
 		else {
@@ -206,7 +195,7 @@ class JsonLdParser {
 		return ["attributes" : attributes, "things" : things]
 	}
 	
-	static func isId(name: String, context: ArrayTest?) -> Bool {
+	static func isId(name: String, context: Context?) -> Bool {
 		guard let context = context else {
 			return false
 		}
